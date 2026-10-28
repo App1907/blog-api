@@ -3,7 +3,9 @@ import { config } from "../../constants/config";
 
 export async function connectDatabase(): Promise<void> {
   mongoose.set("strictQuery", true);
+
   await mongoose.connect(config.mongodbUri);
+
   console.log(`MongoDB connected: ${mongoose.connection.name}`);
 
   mongoose.connection.on("error", (err) => {

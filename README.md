@@ -1,33 +1,39 @@
-# Blog API — Base Setup
+# Blog API (MongoDB)
 
-Express + TypeScript (strict) + MongoDB Atlas + Redis foundation for the Blog API assignment.
+REST API for a blog with authentication (custom MongoDB sessions), posts, tags, comments, and statistics.
 
-**Prefix / DB name:** `blog_ayush`
+**Stack:** Node.js · Express · TypeScript (strict) · MongoDB Atlas · Mongoose · Zod · bcryptjs
 
-## Scripts
+Database: `blog_ayush`
+
+## Setup
 
 ```bash
 npm install
-docker compose up -d   # local Redis
-npm run dev            # auto-restart
-npm run build
-npm start
+cp .env.example .env   # set MONGODB_URI
+npm run dev
 ```
 
-## Environment
+## Scripts
 
-Copy `.env.example` → `.env`:
+- `npm run dev` — auto-restart
+- `npm run build` — compile
+- `npm start` — run compiled JS
 
-- `MONGODB_URI` — Atlas URI with database `blog_ayush`
-- `REDIS_URL` — default `redis://localhost:6379`
-- `REDIS_KEY_PREFIX` — `blog_ayush:`
+## Highlights
 
-## Included (Part 1)
+- Custom sessions in MongoDB (no `express-session` / Passport)
+- TTL index on `sessions.expiresAt`
+- Post list via `$facet` (body excluded)
+- Stats via one `$facet` aggregation
+- Login attempt limiting (MongoDB)
+- Password never returned; stacks never leaked
 
-- TypeScript strict project + folder structure
-- MongoDB + Redis connections (server starts only after both connect)
-- `GET /api/health` → `{ "status": "ok" }`
-- Global error handler → `{ "success": false, "message": "..." }`
-- Redis key helpers + shared ioredis client (`error` event logged, app does not crash)
+## Main endpoints
 
-Feature modules (auth, posts, comments, stats, caching) come in the complete assignment branch.
+- Auth: `/api/auth/signup|login|logout|logout-all`
+- Users: `/api/users/me`, `/api/users/me/posts`
+- Posts: `/api/posts`, `/api/posts/:id`
+- Comments: `/api/posts/:id/comments`, `/api/comments/:id`
+- Stats: `/api/stats`
+- Health: `/api/health`

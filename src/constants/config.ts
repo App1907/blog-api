@@ -15,8 +15,24 @@ export const config = {
   mongodbUri: requireEnv("MONGODB_URI"),
   nodeEnv: process.env.NODE_ENV || "development",
   isProduction: process.env.NODE_ENV === "production",
-  redis: {
-    url: requireEnv("REDIS_URL", "redis://localhost:6379"),
-    keyPrefix: process.env.REDIS_KEY_PREFIX || "blog_ayush:",
+  cookie: {
+    name: process.env.COOKIE_NAME || "session_token",
+    maxAgeMs: 7 * 24 * 60 * 60 * 1000,
+    secure: process.env.COOKIE_SECURE === "true",
+    httpOnly: true,
+    sameSite: "lax" as const,
   },
+  session: {
+    ttlDays: 7,
+  },
+  loginLimit: {
+    maxAttempts: 5,
+    windowMs: 15 * 60 * 1000,
+  },
+  pagination: {
+    defaultPage: 1,
+    defaultLimit: 10,
+    maxLimit: 50,
+  },
+  bcryptRounds: 12,
 } as const;
