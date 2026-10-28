@@ -1,10 +1,12 @@
 import app from "./app";
 import { config } from "./constants/config";
 import { connectDatabase, disconnectDatabase } from "./providers/database";
+import { connectRedis, disconnectRedis } from "./providers/redis";
 
 async function bootstrap(): Promise<void> {
   try {
     await connectDatabase();
+    await connectRedis();
 
     const server = app.listen(config.port, () => {
       console.log(`Server running on http://localhost:${config.port}`);
@@ -16,6 +18,7 @@ async function bootstrap(): Promise<void> {
       console.log(`\n${signal} received. Shutting down...`);
       server.close(async () => {
         try {
+          await disconnectRedis();
           await disconnectDatabase();
         } finally {
           process.exit(0);

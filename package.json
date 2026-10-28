@@ -1,18 +1,21 @@
 {
   "name": "blog-api",
   "version": "1.0.0",
-  "description": "REST API for a blog with auth, posts, comments and stats (MongoDB)",
+  "description": "REST API for a blog with auth, posts, comments, stats and Redis caching",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "redis:up": "docker compose up -d",
+    "redis:down": "docker compose down"
   },
   "keywords": [
     "blog",
     "express",
     "typescript",
-    "mongoose"
+    "mongoose",
+    "redis"
   ],
   "author": "",
   "license": "ISC",
@@ -21,6 +24,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.6.1",
     "express": "^4.22.3",
+    "ioredis": "^6.0.0",
     "mongoose": "^8.24.7",
     "zod": "^3.25.76"
   },

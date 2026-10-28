@@ -6,11 +6,13 @@ import { AppError } from "../../utils/AppError";
 import { UpdateProfileInput } from "./users.validation";
 
 export class UsersController {
-  getMe(req: Request, res: Response): void {
+  async getMe(req: Request, res: Response): Promise<void> {
     if (!req.user) {
       throw new AppError(Messages.UNAUTHORIZED, 401);
     }
-    sendSuccess(res, usersService.getMe(req.user));
+    const { profile, cache } = await usersService.getMe(req.user);
+    res.setHeader("X-Cache", cache);
+    sendSuccess(res, profile);
   }
 
   async updateMe(req: Request, res: Response): Promise<void> {

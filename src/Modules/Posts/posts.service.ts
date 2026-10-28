@@ -4,12 +4,16 @@ import { AppError } from "../../utils/AppError";
 import { Messages } from "../../constants/messages";
 import { assertObjectId } from "../../utils/objectId";
 import { AuthUser } from "../../types/express";
-import {
-  CreatePostInput,
-  UpdatePostInput,
-  ListPostsQuery,
-} from "./posts.validation";
+import { CreatePostInput, UpdatePostInput, ListPostsQuery } from "./posts.validation";
 import { buildPagination, PaginationMeta } from "../../utils/response";
+import { RedisKeys, RedisTTL } from "../../constants/redisKeys";
+import {
+  CacheStatus,
+  getJSON,
+  getOrIncrVersion,
+  setJSON,
+} from "../../utils/cache";
+import { invalidatePostCaches } from "../../utils/cacheInvalidation";
 
 type SerializedPost = {
   id: string;
@@ -61,6 +65,17 @@ function serializePostListItem(post: Record<string, unknown>): SerializedPost {
   };
 }
 
+function listCacheKey(query: ListPostsQuery, version: number): string {
+  return RedisKeys.postsList({
+    version,
+    page: query.page,
+    limit: query.limit,
+    search: (query.search ?? "").toLowerCase(),
+    tag: (query.tag ?? "").toLowerCase(),
+    sort: query.sort,
+  });
+}
+
 export class PostsService {
   async create(user: AuthUser, input: CreatePostInput) {
     const tags = [...new Set((input.tags ?? []).map((t) => t.toLowerCase()))].slice(
@@ -77,18 +92,30 @@ export class PostsService {
       status: input.status,
     });
 
+    await invalidatePostCaches(String(post._id));
+
     return serializePost(post);
   }
 
-  async getPublishedById(id: string): Promise<SerializedPost> {
+  async getPublishedById(
+    id: string
+  ): Promise<{ post: SerializedPost; cache: CacheStatus }> {
     const objectId = assertObjectId(id);
-    const post = await postRepository.findPublishedById(objectId);
+    const cacheKey = RedisKeys.post(String(objectId));
 
+    const cached = await getJSON<SerializedPost>(cacheKey);
+    if (cached) {
+      return { post: cached, cache: "HIT" };
+    }
+
+    const post = await postRepository.findPublishedById(objectId);
     if (!post) {
       throw new AppError(Messages.POST_NOT_FOUND, 404);
     }
 
-    return serializePost(post);
+    const serialized = serializePost(post);
+    await setJSON(cacheKey, serialized, RedisTTL.POST);
+    return { post: serialized, cache: "MISS" };
   }
 
   async update(user: AuthUser, id: string, input: UpdatePostInput) {
@@ -115,6 +142,7 @@ export class PostsService {
       throw new AppError(Messages.POST_NOT_FOUND, 404);
     }
 
+    await invalidatePostCaches(String(objectId));
     return serializePost(updated);
   }
 
@@ -132,6 +160,7 @@ export class PostsService {
 
     await commentRepository.deleteByPostId(objectId);
     await postRepository.deleteById(objectId);
+    await invalidatePostCaches(String(objectId));
 
     return { id: String(objectId) };
   }
@@ -139,7 +168,20 @@ export class PostsService {
   async listPublished(query: ListPostsQuery): Promise<{
     data: SerializedPost[];
     pagination: PaginationMeta;
+    cache: CacheStatus;
   }> {
+    const version = await getOrIncrVersion(RedisKeys.postsListVersion());
+    const key = listCacheKey(query, version);
+
+    const cached = await getJSON<{
+      data: SerializedPost[];
+      pagination: PaginationMeta;
+    }>(key);
+
+    if (cached) {
+      return { ...cached, cache: "HIT" };
+    }
+
     const { posts, total } = await postRepository.listPublished({
       page: query.page,
       limit: query.limit,
@@ -148,10 +190,13 @@ export class PostsService {
       sort: query.sort,
     });
 
-    return {
+    const payload = {
       data: posts.map((p) => serializePostListItem(p as Record<string, unknown>)),
       pagination: buildPagination(query.page, query.limit, total),
     };
+
+    await setJSON(key, payload, RedisTTL.POST_LIST);
+    return { ...payload, cache: "MISS" };
   }
 
   async listMyPosts(user: AuthUser, page: number, limit: number) {

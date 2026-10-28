@@ -10,7 +10,17 @@ import {
 } from "../../utils/crypto";
 import { userRepository } from "../../Repository/User.repository";
 import { sessionRepository } from "../../Repository/Session.repository";
-import { loginAttemptRepository } from "../../Repository/LoginAttempt.repository";
+import {
+  assertLoginAllowed,
+  clearLoginFailures,
+  recordLoginFailure,
+} from "../../utils/loginRateLimit";
+import {
+  cacheSession,
+  remainingTtlSeconds,
+  removeAllCachedSessions,
+  removeCachedSession,
+} from "../../utils/sessionCache";
 import { SignupInput, LoginInput } from "./auth.validation";
 
 function setSessionCookie(res: Response, token: string): void {
@@ -63,10 +73,13 @@ export class AuthService {
     return sanitizeUser(user);
   }
 
-  async login(input: LoginInput, userAgent: string, res: Response) {
-    if (await loginAttemptRepository.isLocked(input.email)) {
-      throw new AppError(Messages.TOO_MANY_LOGIN_ATTEMPTS, 429);
-    }
+  async login(
+    input: LoginInput,
+    userAgent: string,
+    res: Response,
+    ip?: string
+  ) {
+    await assertLoginAllowed(input.email, ip);
 
     const user = await userRepository.findByEmail(input.email);
 
@@ -77,14 +90,14 @@ export class AuthService {
       : await comparePassword(input.password, DUMMY_HASH);
 
     if (!user || !passwordValid) {
-      const { locked } = await loginAttemptRepository.recordFailure(input.email);
+      const { locked, minutes } = await recordLoginFailure(input.email, ip);
       if (locked) {
-        throw new AppError(Messages.TOO_MANY_LOGIN_ATTEMPTS, 429);
+        throw new AppError(Messages.tooManyLoginAttempts(minutes), 429);
       }
       throw new AppError(Messages.INVALID_CREDENTIALS, 401);
     }
 
-    await loginAttemptRepository.reset(input.email);
+    await clearLoginFailures(input.email, ip);
 
     const token = generateSessionToken();
     const expiresAt = getSessionExpiryDate();
@@ -96,6 +109,7 @@ export class AuthService {
       userAgent: userAgent.slice(0, 512) || "unknown",
     });
 
+    await cacheSession(token, String(user._id), remainingTtlSeconds(expiresAt));
     setSessionCookie(res, token);
 
     return {
@@ -108,12 +122,14 @@ export class AuthService {
   async logout(token: string | undefined, res: Response): Promise<void> {
     if (token) {
       await sessionRepository.deleteByToken(token);
+      await removeCachedSession(token);
     }
     clearSessionCookie(res);
   }
 
   async logoutAll(userId: string, res: Response): Promise<number> {
     const deleted = await sessionRepository.deleteAllByUserId(userId);
+    await removeAllCachedSessions(userId);
     clearSessionCookie(res);
     return deleted;
   }

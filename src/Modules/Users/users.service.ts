@@ -4,6 +4,12 @@ import { AppError } from "../../utils/AppError";
 import { Messages } from "../../constants/messages";
 import { AuthUser } from "../../types/express";
 import { UpdateProfileInput } from "./users.validation";
+import { RedisKeys, RedisTTL } from "../../constants/redisKeys";
+import { CacheStatus, delKeys, getJSON, setJSON } from "../../utils/cache";
+import {
+  bumpPostsListVersion,
+  invalidateProfile,
+} from "../../utils/cacheInvalidation";
 
 export interface UserProfile {
   id: string;
@@ -30,8 +36,19 @@ function sanitizeUser(user: AuthUser | {
 }
 
 export class UsersService {
-  getMe(user: AuthUser): UserProfile {
-    return sanitizeUser(user);
+  async getMe(
+    user: AuthUser
+  ): Promise<{ profile: UserProfile; cache: CacheStatus }> {
+    const key = RedisKeys.user(String(user._id));
+    const cached = await getJSON<UserProfile>(key);
+
+    if (cached) {
+      return { profile: cached, cache: "HIT" };
+    }
+
+    const profile = sanitizeUser(user);
+    await setJSON(key, profile, RedisTTL.PROFILE);
+    return { profile, cache: "MISS" };
   }
 
   async updateMe(userId: string, input: UpdateProfileInput) {
@@ -41,6 +58,10 @@ export class UsersService {
     }
 
     await postRepository.updateAuthorName(userId, input.name);
+    await invalidateProfile(userId);
+    await delKeys(RedisKeys.stats());
+    await bumpPostsListVersion();
+
     return sanitizeUser(updated);
   }
 }

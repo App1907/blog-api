@@ -6,6 +6,14 @@ import { assertObjectId, isValidObjectId } from "../../utils/objectId";
 import { AuthUser } from "../../types/express";
 import { CreateCommentInput, ListCommentsQuery } from "./comments.validation";
 import { buildPagination, PaginationMeta } from "../../utils/response";
+import { RedisKeys, RedisTTL } from "../../constants/redisKeys";
+import {
+  CacheStatus,
+  getJSON,
+  getOrIncrVersion,
+  setJSON,
+} from "../../utils/cache";
+import { invalidatePostCaches } from "../../utils/cacheInvalidation";
 
 type SerializedComment = {
   id: string;
@@ -58,13 +66,19 @@ export class CommentsService {
     });
 
     await postRepository.incrementCommentCount(objectId);
+    await invalidatePostCaches(String(objectId));
+
     return serializeComment(comment);
   }
 
   async list(
     postId: string,
     query: ListCommentsQuery
-  ): Promise<{ data: SerializedComment[]; pagination: PaginationMeta }> {
+  ): Promise<{
+    data: SerializedComment[];
+    pagination: PaginationMeta;
+    cache?: CacheStatus;
+  }> {
     const objectId = assertObjectId(postId);
 
     const post = await postRepository.findById(objectId);
@@ -74,6 +88,44 @@ export class CommentsService {
 
     if (query.after && !isValidObjectId(query.after)) {
       throw new AppError(Messages.INVALID_OBJECT_ID, 400);
+    }
+
+    const canCache = !query.after && query.page === 1;
+    if (canCache) {
+      const version = await getOrIncrVersion(
+        RedisKeys.commentsVersion(String(objectId))
+      );
+      const key = RedisKeys.commentsList(
+        String(objectId),
+        version,
+        query.page,
+        query.limit
+      );
+      const cached = await getJSON<{
+        data: SerializedComment[];
+        pagination: PaginationMeta;
+      }>(key);
+
+      if (cached) {
+        return { ...cached, cache: "HIT" };
+      }
+
+      const { comments, total } = await commentRepository.listByPost(
+        objectId,
+        query.page,
+        query.limit,
+        query.after
+      );
+
+      const payload = {
+        data: comments.map((c) =>
+          serializeComment(c as unknown as Record<string, unknown>)
+        ),
+        pagination: buildPagination(query.page, query.limit, total),
+      };
+
+      await setJSON(key, payload, RedisTTL.COMMENTS);
+      return { ...payload, cache: "MISS" };
     }
 
     const { comments, total } = await commentRepository.listByPost(
@@ -100,6 +152,7 @@ export class CommentsService {
     }
 
     const post = await postRepository.findById(comment.postId);
+
     const isCommentAuthor = String(comment.userId) === String(user._id);
     const isPostAuthor = post ? String(post.author) === String(user._id) : false;
 
@@ -109,6 +162,7 @@ export class CommentsService {
 
     await commentRepository.deleteById(objectId);
     await postRepository.decrementCommentCount(comment.postId);
+    await invalidatePostCaches(String(comment.postId));
 
     return { id: String(objectId) };
   }

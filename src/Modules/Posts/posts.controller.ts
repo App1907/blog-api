@@ -13,15 +13,15 @@ import { config } from "../../constants/config";
 export class PostsController {
   async create(req: Request, res: Response): Promise<void> {
     if (!req.user) throw new AppError(Messages.UNAUTHORIZED, 401);
-    const post = await postsService.create(
-      req.user,
-      req.body as CreatePostInput
-    );
+    const post = await postsService.create(req.user, req.body as CreatePostInput);
     sendSuccess(res, post, Messages.POST_CREATED, 201);
   }
 
   async getOne(req: Request, res: Response): Promise<void> {
-    const post = await postsService.getPublishedById(req.params.id as string);
+    const { post, cache } = await postsService.getPublishedById(
+      req.params.id as string
+    );
+    res.setHeader("X-Cache", cache);
     sendSuccess(res, post);
   }
 
@@ -44,6 +44,7 @@ export class PostsController {
   async list(req: Request, res: Response): Promise<void> {
     const query = req.query as unknown as ListPostsQuery;
     const result = await postsService.listPublished(query);
+    res.setHeader("X-Cache", result.cache);
     sendPaginated(res, result.data, result.pagination);
   }
 

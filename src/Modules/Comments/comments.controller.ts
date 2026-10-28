@@ -19,6 +19,9 @@ export class CommentsController {
   async list(req: Request, res: Response): Promise<void> {
     const query = req.query as unknown as ListCommentsQuery;
     const result = await commentsService.list(req.params.id as string, query);
+    if (result.cache) {
+      res.setHeader("X-Cache", result.cache);
+    }
     sendPaginated(res, result.data, result.pagination);
   }
 

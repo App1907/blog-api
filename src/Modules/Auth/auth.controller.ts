@@ -5,6 +5,14 @@ import { sendSuccess, sendMessage } from "../../utils/response";
 import { Messages } from "../../constants/messages";
 import { AppError } from "../../utils/AppError";
 
+function clientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length > 0) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
 export class AuthController {
   async signup(req: Request, res: Response): Promise<void> {
     const user = await authService.signup(req.body as SignupInput);
@@ -16,7 +24,8 @@ export class AuthController {
     const result = await authService.login(
       req.body as LoginInput,
       userAgent,
-      res
+      res,
+      clientIp(req)
     );
     sendSuccess(res, result, Messages.LOGIN_SUCCESS);
   }

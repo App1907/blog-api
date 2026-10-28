@@ -27,7 +27,7 @@ export const config = {
   },
   loginLimit: {
     maxAttempts: 5,
-    windowMs: 15 * 60 * 1000,
+    windowSeconds: 900,
   },
   pagination: {
     defaultPage: 1,
@@ -35,4 +35,8 @@ export const config = {
     maxLimit: 50,
   },
   bcryptRounds: 12,
+  redis: {
+    url: requireEnv("REDIS_URL", "redis://localhost:6379"),
+    keyPrefix: process.env.REDIS_KEY_PREFIX || "blog_ayush:",
+  },
 } as const;
