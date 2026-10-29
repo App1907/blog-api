@@ -1,12 +1,11 @@
 import { Router } from "express";
-import { statsController } from "../Modules/Stats/stats.controller";
-import { asyncHandler } from "../utils/asyncHandler";
+import { StatsController } from "../Modules/Stats/stats.controller";
+import { AsyncHandler } from "../utils/asyncHandler";
 
-const router = Router();
+export function createStatsRoutes(statsController: StatsController): Router {
+  const router = Router();
 
-router.get(
-  "/",
-  asyncHandler((req, res) => statsController.getStats(req, res))
-);
+  router.get("/", AsyncHandler.wrap(statsController.getStats));
 
-export default router;
+  return router;
+}

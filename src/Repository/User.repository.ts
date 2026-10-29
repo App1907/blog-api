@@ -30,5 +30,3 @@ export class UserRepository {
     return count > 0;
   }
 }
-
-export const userRepository = new UserRepository();

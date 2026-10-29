@@ -1,34 +1,40 @@
 import { Router } from "express";
-import { authController } from "../Modules/Auth/auth.controller";
+import { AuthController } from "../Modules/Auth/auth.controller";
 import { signupSchema, loginSchema } from "../Modules/Auth/auth.validation";
-import { validate } from "../middlewares/validate";
-import { requireAuth } from "../middlewares/auth.middleware";
-import { asyncHandler } from "../utils/asyncHandler";
+import { AuthMiddleware } from "../middlewares/auth.middleware";
+import { ValidateMiddleware } from "../middlewares/validate";
+import { AsyncHandler } from "../utils/asyncHandler";
 
-const router = Router();
+export function createAuthRoutes(
+  authController: AuthController,
+  authMiddleware: AuthMiddleware,
+  validateMiddleware: ValidateMiddleware
+): Router {
+  const router = Router();
 
-router.post(
-  "/signup",
-  validate(signupSchema),
-  asyncHandler((req, res) => authController.signup(req, res))
-);
+  router.post(
+    "/signup",
+    validateMiddleware.validate(signupSchema),
+    AsyncHandler.wrap(authController.signup)
+  );
 
-router.post(
-  "/login",
-  validate(loginSchema),
-  asyncHandler((req, res) => authController.login(req, res))
-);
+  router.post(
+    "/login",
+    validateMiddleware.validate(loginSchema),
+    AsyncHandler.wrap(authController.login)
+  );
 
-router.post(
-  "/logout",
-  requireAuth,
-  asyncHandler((req, res) => authController.logout(req, res))
-);
+  router.post(
+    "/logout",
+    authMiddleware.requireAuth,
+    AsyncHandler.wrap(authController.logout)
+  );
 
-router.post(
-  "/logout-all",
-  requireAuth,
-  asyncHandler((req, res) => authController.logoutAll(req, res))
-);
+  router.post(
+    "/logout-all",
+    authMiddleware.requireAuth,
+    AsyncHandler.wrap(authController.logoutAll)
+  );
 
-export default router;
+  return router;
+}

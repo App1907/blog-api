@@ -1,20 +1,49 @@
 import { Router } from "express";
-import authRoutes from "./auth.routes";
-import usersRoutes from "./users.routes";
-import postsRoutes from "./posts.routes";
-import commentsRoutes from "./comments.routes";
-import statsRoutes from "./stats.routes";
+import { Container } from "../container";
+import { createAuthRoutes } from "./auth.routes";
+import { createUsersRoutes } from "./users.routes";
+import { createPostsRoutes } from "./posts.routes";
+import { createCommentsRoutes } from "./comments.routes";
+import { createStatsRoutes } from "./stats.routes";
 
-const router = Router();
+export function createApiRouter(container: Container): Router {
+  const router = Router();
 
-router.get("/health", (_req, res) => {
-  res.status(200).json({ status: "ok" });
-});
+  router.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
 
-router.use("/auth", authRoutes);
-router.use("/users", usersRoutes);
-router.use("/posts", postsRoutes);
-router.use("/comments", commentsRoutes);
-router.use("/stats", statsRoutes);
+  router.use(
+    "/auth",
+    createAuthRoutes(
+      container.authController,
+      container.authMiddleware,
+      container.validateMiddleware
+    )
+  );
+  router.use(
+    "/users",
+    createUsersRoutes(
+      container.usersController,
+      container.postsController,
+      container.authMiddleware,
+      container.validateMiddleware
+    )
+  );
+  router.use(
+    "/posts",
+    createPostsRoutes(
+      container.postsController,
+      container.commentsController,
+      container.authMiddleware,
+      container.validateMiddleware
+    )
+  );
+  router.use(
+    "/comments",
+    createCommentsRoutes(container.commentsController, container.authMiddleware)
+  );
+  router.use("/stats", createStatsRoutes(container.statsController));
 
-export default router;
+  return router;
+}

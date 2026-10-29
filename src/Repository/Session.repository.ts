@@ -25,5 +25,3 @@ export class SessionRepository {
     return result.deletedCount;
   }
 }
-
-export const sessionRepository = new SessionRepository();

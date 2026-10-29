@@ -1,14 +1,19 @@
 import { Router } from "express";
-import { commentsController } from "../Modules/Comments/comments.controller";
-import { requireAuth } from "../middlewares/auth.middleware";
-import { asyncHandler } from "../utils/asyncHandler";
+import { CommentsController } from "../Modules/Comments/comments.controller";
+import { AuthMiddleware } from "../middlewares/auth.middleware";
+import { AsyncHandler } from "../utils/asyncHandler";
 
-const router = Router();
+export function createCommentsRoutes(
+  commentsController: CommentsController,
+  authMiddleware: AuthMiddleware
+): Router {
+  const router = Router();
 
-router.delete(
-  "/:id",
-  requireAuth,
-  asyncHandler((req, res) => commentsController.remove(req, res))
-);
+  router.delete(
+    "/:id",
+    authMiddleware.requireAuth,
+    AsyncHandler.wrap(commentsController.remove)
+  );
 
-export default router;
+  return router;
+}

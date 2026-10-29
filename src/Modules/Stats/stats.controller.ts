@@ -1,13 +1,13 @@
 import { Request, Response } from "express";
-import { statsService } from "./stats.service";
-import { sendSuccess } from "../../utils/response";
+import { StatsService } from "./stats.service";
+import { ResponseHelper } from "../../utils/response";
 
 export class StatsController {
-  async getStats(_req: Request, res: Response): Promise<void> {
-    const { data, cache } = await statsService.getStats();
-    res.setHeader("X-Cache", cache);
-    sendSuccess(res, data);
-  }
-}
+  constructor(private readonly statsService: StatsService) {}
 
-export const statsController = new StatsController();
+  getStats = async (_req: Request, res: Response): Promise<void> => {
+    const { data, cache } = await this.statsService.getStats();
+    res.setHeader("X-Cache", cache);
+    ResponseHelper.sendSuccess(res, data);
+  };
+}

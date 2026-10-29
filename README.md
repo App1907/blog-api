@@ -52,19 +52,21 @@ Server starts only after **MongoDB and Redis** are connected.
 
 ## Project structure
 
+Class-based architecture with constructor dependency injection.
+
 ```
 src/
+  container.ts         # wires all class instances (DI root)
   constants/           # config, messages, Redis keys + TTLs
-  providers/database/  # Mongoose connection
-  providers/redis/     # shared ioredis client
+  providers/           # DatabaseProvider, RedisProvider (classes)
   model/               # User, Session, Post, Comment
-  Repository/          # DB queries
-  Modules/             # controllers + services + validation
-  routes/
-  middlewares/         # auth, validate, error handler
-  utils/               # AppError, crypto, cache helpers
-  app.ts
-  server.ts
+  Repository/          # User/Session/Post/Comment repositories (classes)
+  Modules/             # controllers + services + validation (classes + DI)
+  routes/              # route factories (receive injected controllers)
+  middlewares/         # AuthMiddleware, ValidateMiddleware, ErrorMiddleware
+  utils/               # CacheService, CryptoService, ResponseHelper, …
+  app.ts               # App class
+  server.ts            # bootstrap + connect providers
 ```
 
 ---

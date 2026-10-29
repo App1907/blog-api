@@ -1,30 +1,37 @@
 import { Router } from "express";
-import { usersController } from "../Modules/Users/users.controller";
-import { postsController } from "../Modules/Posts/posts.controller";
+import { UsersController } from "../Modules/Users/users.controller";
+import { PostsController } from "../Modules/Posts/posts.controller";
 import { updateProfileSchema } from "../Modules/Users/users.validation";
-import { validate } from "../middlewares/validate";
-import { requireAuth } from "../middlewares/auth.middleware";
-import { asyncHandler } from "../utils/asyncHandler";
+import { AuthMiddleware } from "../middlewares/auth.middleware";
+import { ValidateMiddleware } from "../middlewares/validate";
+import { AsyncHandler } from "../utils/asyncHandler";
 
-const router = Router();
+export function createUsersRoutes(
+  usersController: UsersController,
+  postsController: PostsController,
+  authMiddleware: AuthMiddleware,
+  validateMiddleware: ValidateMiddleware
+): Router {
+  const router = Router();
 
-router.get(
-  "/me",
-  requireAuth,
-  asyncHandler(async (req, res) => usersController.getMe(req, res))
-);
+  router.get(
+    "/me",
+    authMiddleware.requireAuth,
+    AsyncHandler.wrap(usersController.getMe)
+  );
 
-router.patch(
-  "/me",
-  requireAuth,
-  validate(updateProfileSchema),
-  asyncHandler((req, res) => usersController.updateMe(req, res))
-);
+  router.patch(
+    "/me",
+    authMiddleware.requireAuth,
+    validateMiddleware.validate(updateProfileSchema),
+    AsyncHandler.wrap(usersController.updateMe)
+  );
 
-router.get(
-  "/me/posts",
-  requireAuth,
-  asyncHandler((req, res) => postsController.listMine(req, res))
-);
+  router.get(
+    "/me/posts",
+    authMiddleware.requireAuth,
+    AsyncHandler.wrap(postsController.listMine)
+  );
 
-export default router;
+  return router;
+}

@@ -1,20 +1,35 @@
-import express from "express";
+import express, { Express } from "express";
 import cookieParser from "cookie-parser";
-import routes from "./routes";
-import { errorHandler, notFoundHandler } from "./middlewares/errorHandler";
+import { Container } from "./container";
+import { createApiRouter } from "./routes";
 
-const app = express();
+export class App {
+  readonly express: Express;
 
-app.use(express.json({ limit: "1mb" }));
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+  constructor(private readonly container: Container) {
+    this.express = express();
+    this.setupMiddleware();
+    this.setupRoutes();
+    this.setupErrorHandlers();
+  }
 
-// Security-ish headers (lightweight, no extra deps)
-app.disable("x-powered-by");
+  private setupMiddleware(): void {
+    this.express.use(express.json({ limit: "1mb" }));
+    this.express.use(express.urlencoded({ extended: true }));
+    this.express.use(cookieParser());
+    this.express.disable("x-powered-by");
+  }
 
-app.use("/api", routes);
+  private setupRoutes(): void {
+    this.express.use("/api", createApiRouter(this.container));
+  }
 
-app.use(notFoundHandler);
-app.use(errorHandler);
+  private setupErrorHandlers(): void {
+    this.express.use(this.container.errorMiddleware.notFoundHandler);
+    this.express.use(this.container.errorMiddleware.errorHandler);
+  }
+}
 
-export default app;
+export function createApp(container: Container): Express {
+  return new App(container).express;
+}

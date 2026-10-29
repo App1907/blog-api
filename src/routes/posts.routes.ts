@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { postsController } from "../Modules/Posts/posts.controller";
-import { commentsController } from "../Modules/Comments/comments.controller";
+import { PostsController } from "../Modules/Posts/posts.controller";
+import { CommentsController } from "../Modules/Comments/comments.controller";
 import {
   createPostSchema,
   updatePostSchema,
@@ -10,54 +10,58 @@ import {
   createCommentSchema,
   listCommentsQuerySchema,
 } from "../Modules/Comments/comments.validation";
-import { validate } from "../middlewares/validate";
-import { requireAuth } from "../middlewares/auth.middleware";
-import { asyncHandler } from "../utils/asyncHandler";
+import { AuthMiddleware } from "../middlewares/auth.middleware";
+import { ValidateMiddleware } from "../middlewares/validate";
+import { AsyncHandler } from "../utils/asyncHandler";
 
-const router = Router();
+export function createPostsRoutes(
+  postsController: PostsController,
+  commentsController: CommentsController,
+  authMiddleware: AuthMiddleware,
+  validateMiddleware: ValidateMiddleware
+): Router {
+  const router = Router();
 
-router.get(
-  "/",
-  validate(listPostsQuerySchema, "query"),
-  asyncHandler((req, res) => postsController.list(req, res))
-);
+  router.get(
+    "/",
+    validateMiddleware.validate(listPostsQuerySchema, "query"),
+    AsyncHandler.wrap(postsController.list)
+  );
 
-router.post(
-  "/",
-  requireAuth,
-  validate(createPostSchema),
-  asyncHandler((req, res) => postsController.create(req, res))
-);
+  router.post(
+    "/",
+    authMiddleware.requireAuth,
+    validateMiddleware.validate(createPostSchema),
+    AsyncHandler.wrap(postsController.create)
+  );
 
-router.get(
-  "/:id",
-  asyncHandler((req, res) => postsController.getOne(req, res))
-);
+  router.get("/:id", AsyncHandler.wrap(postsController.getOne));
 
-router.patch(
-  "/:id",
-  requireAuth,
-  validate(updatePostSchema),
-  asyncHandler((req, res) => postsController.update(req, res))
-);
+  router.patch(
+    "/:id",
+    authMiddleware.requireAuth,
+    validateMiddleware.validate(updatePostSchema),
+    AsyncHandler.wrap(postsController.update)
+  );
 
-router.delete(
-  "/:id",
-  requireAuth,
-  asyncHandler((req, res) => postsController.remove(req, res))
-);
+  router.delete(
+    "/:id",
+    authMiddleware.requireAuth,
+    AsyncHandler.wrap(postsController.remove)
+  );
 
-router.post(
-  "/:id/comments",
-  requireAuth,
-  validate(createCommentSchema),
-  asyncHandler((req, res) => commentsController.create(req, res))
-);
+  router.post(
+    "/:id/comments",
+    authMiddleware.requireAuth,
+    validateMiddleware.validate(createCommentSchema),
+    AsyncHandler.wrap(commentsController.create)
+  );
 
-router.get(
-  "/:id/comments",
-  validate(listCommentsQuerySchema, "query"),
-  asyncHandler((req, res) => commentsController.list(req, res))
-);
+  router.get(
+    "/:id/comments",
+    validateMiddleware.validate(listCommentsQuerySchema, "query"),
+    AsyncHandler.wrap(commentsController.list)
+  );
 
-export default router;
+  return router;
+}

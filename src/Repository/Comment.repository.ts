@@ -29,6 +29,20 @@ export class CommentRepository {
     return result.deletedCount;
   }
 
+  async updateUserName(
+    userId: Types.ObjectId | string,
+    userName: string
+  ): Promise<number> {
+    const result = await Comment.updateMany({ userId }, { userName });
+    return result.modifiedCount;
+  }
+
+  async findPostIdsByUser(
+    userId: Types.ObjectId | string
+  ): Promise<Types.ObjectId[]> {
+    return Comment.distinct("postId", { userId }) as Promise<Types.ObjectId[]>;
+  }
+
   async listByPost(
     postId: Types.ObjectId | string,
     page: number,
@@ -80,5 +94,3 @@ export class CommentRepository {
     };
   }
 }
-
-export const commentRepository = new CommentRepository();

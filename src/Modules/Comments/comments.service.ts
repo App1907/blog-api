@@ -1,19 +1,14 @@
-import { commentRepository } from "../../Repository/Comment.repository";
-import { postRepository } from "../../Repository/Post.repository";
+import { CommentRepository } from "../../Repository/Comment.repository";
+import { PostRepository } from "../../Repository/Post.repository";
 import { AppError } from "../../utils/AppError";
 import { Messages } from "../../constants/messages";
-import { assertObjectId, isValidObjectId } from "../../utils/objectId";
+import { ObjectIdHelper } from "../../utils/objectId";
 import { AuthUser } from "../../types/express";
 import { CreateCommentInput, ListCommentsQuery } from "./comments.validation";
-import { buildPagination, PaginationMeta } from "../../utils/response";
+import { ResponseHelper, PaginationMeta } from "../../utils/response";
 import { RedisKeys, RedisTTL } from "../../constants/redisKeys";
-import {
-  CacheStatus,
-  getJSON,
-  getOrIncrVersion,
-  setJSON,
-} from "../../utils/cache";
-import { invalidatePostCaches } from "../../utils/cacheInvalidation";
+import { CacheService, CacheStatus } from "../../utils/cache";
+import { CacheInvalidationService } from "../../utils/cacheInvalidation";
 
 type SerializedComment = {
   id: string;
@@ -25,30 +20,39 @@ type SerializedComment = {
   updatedAt: unknown;
 };
 
-function serializeComment(
-  comment: Record<string, unknown> | { toObject?: () => Record<string, unknown> }
-): SerializedComment {
-  const obj =
-    typeof (comment as { toObject?: () => Record<string, unknown> }).toObject ===
-    "function"
-      ? (comment as { toObject: () => Record<string, unknown> }).toObject()
-      : (comment as Record<string, unknown>);
-
-  return {
-    id: String(obj._id),
-    postId: String(obj.postId),
-    userId: String(obj.userId),
-    userName: obj.userName,
-    text: obj.text,
-    createdAt: obj.createdAt,
-    updatedAt: obj.updatedAt,
-  };
-}
-
 export class CommentsService {
+  constructor(
+    private readonly commentRepository: CommentRepository,
+    private readonly postRepository: PostRepository,
+    private readonly cacheService: CacheService,
+    private readonly cacheInvalidationService: CacheInvalidationService
+  ) {}
+
+  private serializeComment(
+    comment:
+      | Record<string, unknown>
+      | { toObject?: () => Record<string, unknown> }
+  ): SerializedComment {
+    const obj =
+      typeof (comment as { toObject?: () => Record<string, unknown> })
+        .toObject === "function"
+        ? (comment as { toObject: () => Record<string, unknown> }).toObject()
+        : (comment as Record<string, unknown>);
+
+    return {
+      id: String(obj._id),
+      postId: String(obj.postId),
+      userId: String(obj.userId),
+      userName: obj.userName,
+      text: obj.text,
+      createdAt: obj.createdAt,
+      updatedAt: obj.updatedAt,
+    };
+  }
+
   async create(user: AuthUser, postId: string, input: CreateCommentInput) {
-    const objectId = assertObjectId(postId);
-    const post = await postRepository.findById(objectId);
+    const objectId = ObjectIdHelper.assert(postId);
+    const post = await this.postRepository.findById(objectId);
 
     if (!post) {
       throw new AppError(Messages.POST_NOT_FOUND, 404);
@@ -58,17 +62,17 @@ export class CommentsService {
       throw new AppError(Messages.POST_NOT_PUBLISHED, 400);
     }
 
-    const comment = await commentRepository.create({
+    const comment = await this.commentRepository.create({
       postId: objectId,
       userId: user._id,
       userName: user.name,
       text: input.text,
     });
 
-    await postRepository.incrementCommentCount(objectId);
-    await invalidatePostCaches(String(objectId));
+    await this.postRepository.incrementCommentCount(objectId);
+    await this.cacheInvalidationService.invalidatePostCaches(String(objectId));
 
-    return serializeComment(comment);
+    return this.serializeComment(comment);
   }
 
   async list(
@@ -79,20 +83,20 @@ export class CommentsService {
     pagination: PaginationMeta;
     cache?: CacheStatus;
   }> {
-    const objectId = assertObjectId(postId);
+    const objectId = ObjectIdHelper.assert(postId);
 
-    const post = await postRepository.findById(objectId);
-    if (!post) {
+    const post = await this.postRepository.findById(objectId);
+    if (!post || post.status !== "published") {
       throw new AppError(Messages.POST_NOT_FOUND, 404);
     }
 
-    if (query.after && !isValidObjectId(query.after)) {
+    if (query.after && !ObjectIdHelper.isValid(query.after)) {
       throw new AppError(Messages.INVALID_OBJECT_ID, 400);
     }
 
     const canCache = !query.after && query.page === 1;
     if (canCache) {
-      const version = await getOrIncrVersion(
+      const version = await this.cacheService.getOrIncrVersion(
         RedisKeys.commentsVersion(String(objectId))
       );
       const key = RedisKeys.commentsList(
@@ -101,7 +105,7 @@ export class CommentsService {
         query.page,
         query.limit
       );
-      const cached = await getJSON<{
+      const cached = await this.cacheService.getJSON<{
         data: SerializedComment[];
         pagination: PaginationMeta;
       }>(key);
@@ -110,7 +114,7 @@ export class CommentsService {
         return { ...cached, cache: "HIT" };
       }
 
-      const { comments, total } = await commentRepository.listByPost(
+      const { comments, total } = await this.commentRepository.listByPost(
         objectId,
         query.page,
         query.limit,
@@ -119,16 +123,20 @@ export class CommentsService {
 
       const payload = {
         data: comments.map((c) =>
-          serializeComment(c as unknown as Record<string, unknown>)
+          this.serializeComment(c as unknown as Record<string, unknown>)
         ),
-        pagination: buildPagination(query.page, query.limit, total),
+        pagination: ResponseHelper.buildPagination(
+          query.page,
+          query.limit,
+          total
+        ),
       };
 
-      await setJSON(key, payload, RedisTTL.COMMENTS);
+      await this.cacheService.setJSON(key, payload, RedisTTL.COMMENTS);
       return { ...payload, cache: "MISS" };
     }
 
-    const { comments, total } = await commentRepository.listByPost(
+    const { comments, total } = await this.commentRepository.listByPost(
       objectId,
       query.page,
       query.limit,
@@ -137,21 +145,21 @@ export class CommentsService {
 
     return {
       data: comments.map((c) =>
-        serializeComment(c as unknown as Record<string, unknown>)
+        this.serializeComment(c as unknown as Record<string, unknown>)
       ),
-      pagination: buildPagination(query.page, query.limit, total),
+      pagination: ResponseHelper.buildPagination(query.page, query.limit, total),
     };
   }
 
   async remove(user: AuthUser, commentId: string) {
-    const objectId = assertObjectId(commentId);
-    const comment = await commentRepository.findById(objectId);
+    const objectId = ObjectIdHelper.assert(commentId);
+    const comment = await this.commentRepository.findById(objectId);
 
     if (!comment) {
       throw new AppError(Messages.COMMENT_NOT_FOUND, 404);
     }
 
-    const post = await postRepository.findById(comment.postId);
+    const post = await this.postRepository.findById(comment.postId);
 
     const isCommentAuthor = String(comment.userId) === String(user._id);
     const isPostAuthor = post ? String(post.author) === String(user._id) : false;
@@ -160,12 +168,12 @@ export class CommentsService {
       throw new AppError(Messages.FORBIDDEN_COMMENT, 403);
     }
 
-    await commentRepository.deleteById(objectId);
-    await postRepository.decrementCommentCount(comment.postId);
-    await invalidatePostCaches(String(comment.postId));
+    await this.commentRepository.deleteById(objectId);
+    await this.postRepository.decrementCommentCount(comment.postId);
+    await this.cacheInvalidationService.invalidatePostCaches(
+      String(comment.postId)
+    );
 
     return { id: String(objectId) };
   }
 }
-
-export const commentsService = new CommentsService();

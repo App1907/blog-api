@@ -146,6 +146,13 @@ export class PostRepository {
     return result.modifiedCount;
   }
 
+  async findIdsByAuthor(
+    authorId: Types.ObjectId | string
+  ): Promise<Types.ObjectId[]> {
+    const posts = await Post.find({ author: authorId }).select("_id").lean();
+    return posts.map((p) => p._id as Types.ObjectId);
+  }
+
   async incrementCommentCount(id: Types.ObjectId | string): Promise<void> {
     await Post.updateOne({ _id: id }, { $inc: { commentCount: 1 } });
   }
@@ -227,5 +234,3 @@ export class PostRepository {
     };
   }
 }
-
-export const postRepository = new PostRepository();

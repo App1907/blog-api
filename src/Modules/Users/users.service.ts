@@ -1,15 +1,13 @@
-import { userRepository } from "../../Repository/User.repository";
-import { postRepository } from "../../Repository/Post.repository";
+import { UserRepository } from "../../Repository/User.repository";
+import { PostRepository } from "../../Repository/Post.repository";
+import { CommentRepository } from "../../Repository/Comment.repository";
 import { AppError } from "../../utils/AppError";
 import { Messages } from "../../constants/messages";
 import { AuthUser } from "../../types/express";
 import { UpdateProfileInput } from "./users.validation";
 import { RedisKeys, RedisTTL } from "../../constants/redisKeys";
-import { CacheStatus, delKeys, getJSON, setJSON } from "../../utils/cache";
-import {
-  bumpPostsListVersion,
-  invalidateProfile,
-} from "../../utils/cacheInvalidation";
+import { CacheService, CacheStatus } from "../../utils/cache";
+import { CacheInvalidationService } from "../../utils/cacheInvalidation";
 
 export interface UserProfile {
   id: string;
@@ -19,51 +17,70 @@ export interface UserProfile {
   updatedAt: Date | string;
 }
 
-function sanitizeUser(user: AuthUser | {
-  _id: unknown;
-  name: string;
-  email: string;
-  createdAt: Date;
-  updatedAt: Date;
-}): UserProfile {
-  return {
-    id: String(user._id),
-    name: user.name,
-    email: user.email,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
-  };
-}
-
 export class UsersService {
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly postRepository: PostRepository,
+    private readonly commentRepository: CommentRepository,
+    private readonly cacheService: CacheService,
+    private readonly cacheInvalidationService: CacheInvalidationService
+  ) {}
+
+  private sanitizeUser(
+    user:
+      | AuthUser
+      | {
+          _id: unknown;
+          name: string;
+          email: string;
+          createdAt: Date;
+          updatedAt: Date;
+        }
+  ): UserProfile {
+    return {
+      id: String(user._id),
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+
   async getMe(
     user: AuthUser
   ): Promise<{ profile: UserProfile; cache: CacheStatus }> {
     const key = RedisKeys.user(String(user._id));
-    const cached = await getJSON<UserProfile>(key);
+    const cached = await this.cacheService.getJSON<UserProfile>(key);
 
     if (cached) {
       return { profile: cached, cache: "HIT" };
     }
 
-    const profile = sanitizeUser(user);
-    await setJSON(key, profile, RedisTTL.PROFILE);
+    const profile = this.sanitizeUser(user);
+    await this.cacheService.setJSON(key, profile, RedisTTL.PROFILE);
     return { profile, cache: "MISS" };
   }
 
   async updateMe(userId: string, input: UpdateProfileInput) {
-    const updated = await userRepository.updateName(userId, input.name);
+    const updated = await this.userRepository.updateName(userId, input.name);
     if (!updated) {
       throw new AppError(Messages.NOT_FOUND, 404);
     }
 
-    await postRepository.updateAuthorName(userId, input.name);
-    await invalidateProfile(userId);
-    await delKeys(RedisKeys.stats());
-    await bumpPostsListVersion();
+    await this.postRepository.updateAuthorName(userId, input.name);
+    await this.commentRepository.updateUserName(userId, input.name);
 
-    return sanitizeUser(updated);
+    const authoredPostIds = (
+      await this.postRepository.findIdsByAuthor(userId)
+    ).map((id) => String(id));
+    const commentedPostIds = (
+      await this.commentRepository.findPostIdsByUser(userId)
+    ).map((id) => String(id));
+
+    await this.cacheInvalidationService.invalidateProfile(userId);
+    await this.cacheInvalidationService.invalidatePostsByIds(authoredPostIds);
+    await this.cacheInvalidationService.bumpCommentsVersions(commentedPostIds);
+
+    return this.sanitizeUser(updated);
   }
 }
-
-export const usersService = new UsersService();

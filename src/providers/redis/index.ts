@@ -1,42 +1,44 @@
 import Redis from "ioredis";
 import { config } from "../../constants/config";
 
-let redis: Redis | null = null;
+export class RedisProvider {
+  private client: Redis | null = null;
 
-export function getRedis(): Redis {
-  if (!redis) {
-    throw new Error("Redis has not been connected yet");
-  }
-  return redis;
-}
-
-export function isRedisReady(): boolean {
-  return redis !== null && redis.status === "ready";
-}
-
-export async function connectRedis(): Promise<Redis> {
-  if (redis && redis.status === "ready") {
-    return redis;
+  getClient(): Redis {
+    if (!this.client) {
+      throw new Error("Redis has not been connected yet");
+    }
+    return this.client;
   }
 
-  redis = new Redis(config.redis.url, {
-    maxRetriesPerRequest: 1,
-    enableReadyCheck: true,
-    lazyConnect: true,
-  });
+  isReady(): boolean {
+    return this.client !== null && this.client.status === "ready";
+  }
 
-  redis.on("error", (err) => {
-    console.error("Redis error:", err.message);
-  });
+  async connect(): Promise<Redis> {
+    if (this.client && this.client.status === "ready") {
+      return this.client;
+    }
 
-  await redis.connect();
-  console.log("Redis connected");
-  return redis;
-}
+    this.client = new Redis(config.redis.url, {
+      maxRetriesPerRequest: 1,
+      enableReadyCheck: true,
+      lazyConnect: true,
+    });
 
-export async function disconnectRedis(): Promise<void> {
-  if (redis) {
-    await redis.quit();
-    redis = null;
+    this.client.on("error", (err) => {
+      console.error("Redis error:", err.message);
+    });
+
+    await this.client.connect();
+    console.log("Redis connected");
+    return this.client;
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.client) {
+      await this.client.quit();
+      this.client = null;
+    }
   }
 }

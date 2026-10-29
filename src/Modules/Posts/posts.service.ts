@@ -1,19 +1,14 @@
-import { postRepository } from "../../Repository/Post.repository";
-import { commentRepository } from "../../Repository/Comment.repository";
+import { PostRepository } from "../../Repository/Post.repository";
+import { CommentRepository } from "../../Repository/Comment.repository";
 import { AppError } from "../../utils/AppError";
 import { Messages } from "../../constants/messages";
-import { assertObjectId } from "../../utils/objectId";
+import { ObjectIdHelper } from "../../utils/objectId";
 import { AuthUser } from "../../types/express";
 import { CreatePostInput, UpdatePostInput, ListPostsQuery } from "./posts.validation";
-import { buildPagination, PaginationMeta } from "../../utils/response";
+import { ResponseHelper, PaginationMeta } from "../../utils/response";
 import { RedisKeys, RedisTTL } from "../../constants/redisKeys";
-import {
-  CacheStatus,
-  getJSON,
-  getOrIncrVersion,
-  setJSON,
-} from "../../utils/cache";
-import { invalidatePostCaches } from "../../utils/cacheInvalidation";
+import { CacheService, CacheStatus } from "../../utils/cache";
+import { CacheInvalidationService } from "../../utils/cacheInvalidation";
 
 type SerializedPost = {
   id: string;
@@ -28,62 +23,69 @@ type SerializedPost = {
   updatedAt: unknown;
 };
 
-function serializePost(
-  post: Record<string, unknown> | { toObject?: () => Record<string, unknown> }
-): SerializedPost {
-  const obj =
-    typeof (post as { toObject?: () => Record<string, unknown> }).toObject ===
-    "function"
-      ? (post as { toObject: () => Record<string, unknown> }).toObject()
-      : (post as Record<string, unknown>);
-
-  return {
-    id: String(obj._id),
-    title: obj.title,
-    body: obj.body,
-    tags: obj.tags,
-    author: String(obj.author),
-    authorName: obj.authorName,
-    status: obj.status,
-    commentCount: obj.commentCount,
-    createdAt: obj.createdAt,
-    updatedAt: obj.updatedAt,
-  };
-}
-
-function serializePostListItem(post: Record<string, unknown>): SerializedPost {
-  return {
-    id: String(post._id),
-    title: post.title,
-    tags: post.tags,
-    author: String(post.author),
-    authorName: post.authorName,
-    status: post.status,
-    commentCount: post.commentCount,
-    createdAt: post.createdAt,
-    updatedAt: post.updatedAt,
-  };
-}
-
-function listCacheKey(query: ListPostsQuery, version: number): string {
-  return RedisKeys.postsList({
-    version,
-    page: query.page,
-    limit: query.limit,
-    search: (query.search ?? "").toLowerCase(),
-    tag: (query.tag ?? "").toLowerCase(),
-    sort: query.sort,
-  });
-}
-
 export class PostsService {
+  constructor(
+    private readonly postRepository: PostRepository,
+    private readonly commentRepository: CommentRepository,
+    private readonly cacheService: CacheService,
+    private readonly cacheInvalidationService: CacheInvalidationService
+  ) {}
+
+  private serializePost(
+    post: Record<string, unknown> | { toObject?: () => Record<string, unknown> }
+  ): SerializedPost {
+    const obj =
+      typeof (post as { toObject?: () => Record<string, unknown> }).toObject ===
+      "function"
+        ? (post as { toObject: () => Record<string, unknown> }).toObject()
+        : (post as Record<string, unknown>);
+
+    return {
+      id: String(obj._id),
+      title: obj.title,
+      body: obj.body,
+      tags: obj.tags,
+      author: String(obj.author),
+      authorName: obj.authorName,
+      status: obj.status,
+      commentCount: obj.commentCount,
+      createdAt: obj.createdAt,
+      updatedAt: obj.updatedAt,
+    };
+  }
+
+  private serializePostListItem(post: Record<string, unknown>): SerializedPost {
+    return {
+      id: String(post._id),
+      title: post.title,
+      tags: post.tags,
+      author: String(post.author),
+      authorName: post.authorName,
+      status: post.status,
+      commentCount: post.commentCount,
+      createdAt: post.createdAt,
+      updatedAt: post.updatedAt,
+    };
+  }
+
+  private listCacheKey(query: ListPostsQuery, version: number): string {
+    return RedisKeys.postsList({
+      version,
+      page: query.page,
+      limit: query.limit,
+      search: (query.search ?? "").toLowerCase(),
+      tag: (query.tag ?? "").toLowerCase(),
+      sort: query.sort,
+    });
+  }
+
   async create(user: AuthUser, input: CreatePostInput) {
     const tags = [...new Set((input.tags ?? []).map((t) => t.toLowerCase()))].slice(
       0,
       5
     );
 
-    const post = await postRepository.create({
+    const post = await this.postRepository.create({
       title: input.title,
       body: input.body,
       tags,
@@ -92,35 +94,35 @@ export class PostsService {
       status: input.status,
     });
 
-    await invalidatePostCaches(String(post._id));
+    await this.cacheInvalidationService.invalidatePostCaches(String(post._id));
 
-    return serializePost(post);
+    return this.serializePost(post);
   }
 
   async getPublishedById(
     id: string
   ): Promise<{ post: SerializedPost; cache: CacheStatus }> {
-    const objectId = assertObjectId(id);
+    const objectId = ObjectIdHelper.assert(id);
     const cacheKey = RedisKeys.post(String(objectId));
 
-    const cached = await getJSON<SerializedPost>(cacheKey);
+    const cached = await this.cacheService.getJSON<SerializedPost>(cacheKey);
     if (cached) {
       return { post: cached, cache: "HIT" };
     }
 
-    const post = await postRepository.findPublishedById(objectId);
+    const post = await this.postRepository.findPublishedById(objectId);
     if (!post) {
       throw new AppError(Messages.POST_NOT_FOUND, 404);
     }
 
-    const serialized = serializePost(post);
-    await setJSON(cacheKey, serialized, RedisTTL.POST);
+    const serialized = this.serializePost(post);
+    await this.cacheService.setJSON(cacheKey, serialized, RedisTTL.POST);
     return { post: serialized, cache: "MISS" };
   }
 
   async update(user: AuthUser, id: string, input: UpdatePostInput) {
-    const objectId = assertObjectId(id);
-    const post = await postRepository.findById(objectId);
+    const objectId = ObjectIdHelper.assert(id);
+    const post = await this.postRepository.findById(objectId);
 
     if (!post) {
       throw new AppError(Messages.POST_NOT_FOUND, 404);
@@ -137,18 +139,18 @@ export class PostsService {
       ].slice(0, 5);
     }
 
-    const updated = await postRepository.updateById(objectId, updateData);
+    const updated = await this.postRepository.updateById(objectId, updateData);
     if (!updated) {
       throw new AppError(Messages.POST_NOT_FOUND, 404);
     }
 
-    await invalidatePostCaches(String(objectId));
-    return serializePost(updated);
+    await this.cacheInvalidationService.invalidatePostCaches(String(objectId));
+    return this.serializePost(updated);
   }
 
   async remove(user: AuthUser, id: string) {
-    const objectId = assertObjectId(id);
-    const post = await postRepository.findById(objectId);
+    const objectId = ObjectIdHelper.assert(id);
+    const post = await this.postRepository.findById(objectId);
 
     if (!post) {
       throw new AppError(Messages.POST_NOT_FOUND, 404);
@@ -158,9 +160,9 @@ export class PostsService {
       throw new AppError(Messages.FORBIDDEN_POST, 403);
     }
 
-    await commentRepository.deleteByPostId(objectId);
-    await postRepository.deleteById(objectId);
-    await invalidatePostCaches(String(objectId));
+    await this.commentRepository.deleteByPostId(objectId);
+    await this.postRepository.deleteById(objectId);
+    await this.cacheInvalidationService.invalidatePostCaches(String(objectId));
 
     return { id: String(objectId) };
   }
@@ -170,10 +172,12 @@ export class PostsService {
     pagination: PaginationMeta;
     cache: CacheStatus;
   }> {
-    const version = await getOrIncrVersion(RedisKeys.postsListVersion());
-    const key = listCacheKey(query, version);
+    const version = await this.cacheService.getOrIncrVersion(
+      RedisKeys.postsListVersion()
+    );
+    const key = this.listCacheKey(query, version);
 
-    const cached = await getJSON<{
+    const cached = await this.cacheService.getJSON<{
       data: SerializedPost[];
       pagination: PaginationMeta;
     }>(key);
@@ -182,7 +186,7 @@ export class PostsService {
       return { ...cached, cache: "HIT" };
     }
 
-    const { posts, total } = await postRepository.listPublished({
+    const { posts, total } = await this.postRepository.listPublished({
       page: query.page,
       limit: query.limit,
       search: query.search,
@@ -191,26 +195,26 @@ export class PostsService {
     });
 
     const payload = {
-      data: posts.map((p) => serializePostListItem(p as Record<string, unknown>)),
-      pagination: buildPagination(query.page, query.limit, total),
+      data: posts.map((p) =>
+        this.serializePostListItem(p as Record<string, unknown>)
+      ),
+      pagination: ResponseHelper.buildPagination(query.page, query.limit, total),
     };
 
-    await setJSON(key, payload, RedisTTL.POST_LIST);
+    await this.cacheService.setJSON(key, payload, RedisTTL.POST_LIST);
     return { ...payload, cache: "MISS" };
   }
 
   async listMyPosts(user: AuthUser, page: number, limit: number) {
-    const { posts, total } = await postRepository.findByAuthor(
+    const { posts, total } = await this.postRepository.findByAuthor(
       user._id,
       page,
       limit
     );
 
     return {
-      data: posts.map((p) => serializePost(p as Record<string, unknown>)),
-      pagination: buildPagination(page, limit, total),
+      data: posts.map((p) => this.serializePost(p as Record<string, unknown>)),
+      pagination: ResponseHelper.buildPagination(page, limit, total),
     };
   }
 }
-
-export const postsService = new PostsService();

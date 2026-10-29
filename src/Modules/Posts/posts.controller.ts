@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { postsService } from "./posts.service";
-import { sendSuccess, sendPaginated, sendMessage } from "../../utils/response";
+import { PostsService } from "./posts.service";
+import { ResponseHelper } from "../../utils/response";
 import { Messages } from "../../constants/messages";
 import { AppError } from "../../utils/AppError";
 import {
@@ -11,44 +11,49 @@ import {
 import { config } from "../../constants/config";
 
 export class PostsController {
-  async create(req: Request, res: Response): Promise<void> {
-    if (!req.user) throw new AppError(Messages.UNAUTHORIZED, 401);
-    const post = await postsService.create(req.user, req.body as CreatePostInput);
-    sendSuccess(res, post, Messages.POST_CREATED, 201);
-  }
+  constructor(private readonly postsService: PostsService) {}
 
-  async getOne(req: Request, res: Response): Promise<void> {
-    const { post, cache } = await postsService.getPublishedById(
+  create = async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw new AppError(Messages.UNAUTHORIZED, 401);
+    const post = await this.postsService.create(
+      req.user,
+      req.body as CreatePostInput
+    );
+    ResponseHelper.sendSuccess(res, post, Messages.POST_CREATED, 201);
+  };
+
+  getOne = async (req: Request, res: Response): Promise<void> => {
+    const { post, cache } = await this.postsService.getPublishedById(
       req.params.id as string
     );
     res.setHeader("X-Cache", cache);
-    sendSuccess(res, post);
-  }
+    ResponseHelper.sendSuccess(res, post);
+  };
 
-  async update(req: Request, res: Response): Promise<void> {
+  update = async (req: Request, res: Response): Promise<void> => {
     if (!req.user) throw new AppError(Messages.UNAUTHORIZED, 401);
-    const post = await postsService.update(
+    const post = await this.postsService.update(
       req.user,
       req.params.id as string,
       req.body as UpdatePostInput
     );
-    sendSuccess(res, post, Messages.POST_UPDATED);
-  }
+    ResponseHelper.sendSuccess(res, post, Messages.POST_UPDATED);
+  };
 
-  async remove(req: Request, res: Response): Promise<void> {
+  remove = async (req: Request, res: Response): Promise<void> => {
     if (!req.user) throw new AppError(Messages.UNAUTHORIZED, 401);
-    await postsService.remove(req.user, req.params.id as string);
-    sendMessage(res, Messages.POST_DELETED);
-  }
+    await this.postsService.remove(req.user, req.params.id as string);
+    ResponseHelper.sendMessage(res, Messages.POST_DELETED);
+  };
 
-  async list(req: Request, res: Response): Promise<void> {
+  list = async (req: Request, res: Response): Promise<void> => {
     const query = req.query as unknown as ListPostsQuery;
-    const result = await postsService.listPublished(query);
+    const result = await this.postsService.listPublished(query);
     res.setHeader("X-Cache", result.cache);
-    sendPaginated(res, result.data, result.pagination);
-  }
+    ResponseHelper.sendPaginated(res, result.data, result.pagination);
+  };
 
-  async listMine(req: Request, res: Response): Promise<void> {
+  listMine = async (req: Request, res: Response): Promise<void> => {
     if (!req.user) throw new AppError(Messages.UNAUTHORIZED, 401);
 
     const page = Math.max(
@@ -60,9 +65,7 @@ export class PostsController {
       Math.max(1, Number(req.query.limit) || config.pagination.defaultLimit)
     );
 
-    const result = await postsService.listMyPosts(req.user, page, limit);
-    sendPaginated(res, result.data, result.pagination);
-  }
+    const result = await this.postsService.listMyPosts(req.user, page, limit);
+    ResponseHelper.sendPaginated(res, result.data, result.pagination);
+  };
 }
-
-export const postsController = new PostsController();
